@@ -45,4 +45,3 @@ jobs:
           push: true
           tags: |
             jupitertriangles/polyon-dc:v${{ steps.version.outputs.version }}
-            jupitertriangles/polyon-dc:latest
