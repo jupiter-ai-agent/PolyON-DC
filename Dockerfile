@@ -10,6 +10,7 @@ ENV ADMIN_PASSWORD=ChangeMe123!
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     samba \
+    samba-ad-provision \
     krb5-user \
     samba-dsdb-modules \
     samba-vfs-modules \
