@@ -93,7 +93,16 @@ write_progress "reading" "설정 파일 읽기" 10
 
 if [ -f "$SETUP_JSON" ]; then
     REALM=$(cat "$SETUP_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('realm','POLYON.DEV'))" 2>/dev/null || echo "POLYON.DEV")
-    DOMAIN=$(cat "$SETUP_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('domain','POLYON'))" 2>/dev/null || echo "POLYON")
+    # domain: 명시적 domain 키 → 없으면 realm 첫 라벨에서 자동 추출 (CMARS.COM → CMARS)
+    DOMAIN=$(cat "$SETUP_JSON" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+domain = d.get('domain','')
+if not domain:
+    realm = d.get('realm','POLYON.DEV')
+    domain = realm.split('.')[0]
+print(domain or 'POLYON')
+" 2>/dev/null || echo "POLYON")
     DNS_FORWARDER=$(cat "$SETUP_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('dns_forwarder','8.8.8.8'))" 2>/dev/null || echo "8.8.8.8")
     FUNCTION_LEVEL=$(cat "$SETUP_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('function_level','2008_R2'))" 2>/dev/null || echo "2008_R2")
     # Use dc_admin_password if set, otherwise fall back to admin_password
