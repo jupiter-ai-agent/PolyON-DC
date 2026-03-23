@@ -36,35 +36,31 @@ if [ -f "/shared/.helios-resetting" ]; then
     # Fall through to setup.json wait loop below
 fi
 
-# ── Already provisioned → restore configs & start ──
+# ── Already provisioned → symlink configs & start ──
 if [ -f "$PROVISIONED" ]; then
     echo "============================================="
     echo "  HELIOS - Samba AD Domain Controller"
     echo "  Domain already provisioned. Starting..."
     echo "============================================="
 
-    # Restore smb.conf from PVC backup (survives container restarts)
-    if [ -f "/var/lib/samba/smb.conf.bak" ] && [ ! -f "/etc/samba/smb.conf" ]; then
-        echo "[HELIOS] Restoring smb.conf from PVC backup..."
-        mkdir -p /etc/samba
-        cp /var/lib/samba/smb.conf.bak /etc/samba/smb.conf
-    fi
-
-    # Restore krb5.conf from PVC backup
-    if [ -f "/var/lib/samba/krb5.conf.bak" ] && [ ! -f "/etc/krb5.conf" ]; then
-        echo "[HELIOS] Restoring krb5.conf from PVC backup..."
-        cp /var/lib/samba/krb5.conf.bak /etc/krb5.conf
-    fi
-
-    # Validate smb.conf exists
-    if [ ! -f "/etc/samba/smb.conf" ]; then
-        echo "[HELIOS] ERROR: smb.conf missing and no backup found. Clearing provisioned flag for re-provision."
+    # smb.conf: PVC(/var/lib/samba/smb.conf) → /etc/samba/smb.conf symlink
+    mkdir -p /etc/samba /var/log/samba
+    if [ -f "/var/lib/samba/smb.conf" ]; then
+        ln -sf /var/lib/samba/smb.conf /etc/samba/smb.conf
+        echo "[HELIOS] smb.conf linked from PVC"
+    else
+        echo "[HELIOS] ERROR: /var/lib/samba/smb.conf not found. Re-provisioning..."
         rm -f "$PROVISIONED"
         # Fall through to provisioning below
-    else
-        # Create log directory
-        mkdir -p /var/log/samba
+    fi
 
+    # krb5.conf: PVC → /etc/krb5.conf symlink
+    if [ -f "/var/lib/samba/private/krb5.conf" ]; then
+        ln -sf /var/lib/samba/private/krb5.conf /etc/krb5.conf
+        echo "[HELIOS] krb5.conf linked from PVC"
+    fi
+
+    if [ -f "$PROVISIONED" ]; then
         # Ensure shared marker exists for API
         touch /shared/.helios-provisioned 2>/dev/null || true
         write_progress "complete" "완료" 100
@@ -133,6 +129,7 @@ write_progress "provisioning" "samba-tool domain provision" 30
 # Remove default configs
 rm -f /etc/samba/smb.conf
 rm -f /etc/krb5.conf
+mkdir -p /etc/samba /var/log/samba
 
 # Provision Samba AD DC
 FUNCTION_LEVEL="${FUNCTION_LEVEL:-2008_R2}"
@@ -154,32 +151,30 @@ samba-tool domain provision \
     --option="log level = 1" \
     --option="log file = /var/log/samba/samba.log"
 
-# Configure Kerberos
-write_progress "configuring" "Kerberos 설정" 60
-cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
+# ── Move smb.conf to PVC and symlink (survive container restarts) ──
+write_progress "configuring" "SMB 설정 PVC 이전" 55
 
-# Tune smb.conf for container
-write_progress "configuring" "SMB 최적화" 80
+# Append HELIOS-specific settings to smb.conf
 cat >> /etc/samba/smb.conf << EOF
 
 # HELIOS container settings
-[global]
-    log level = 1
-    log file = /var/log/samba/samba.log
-    max log size = 10000
-    bind interfaces only = no
-    server services = s3fs, rpc, nbt, wrepl, ldap, cldap, kdc, drepl, winbindd, ntp_signd, kcc, dnsupdate
-    # Allow password operations from API container
-    ldap server require strong auth = no
+	log level = 1
+	log file = /var/log/samba/samba.log
+	max log size = 10000
+	bind interfaces only = no
+	server services = s3fs, rpc, nbt, wrepl, ldap, cldap, kdc, drepl, winbindd, ntp_signd, kcc, dnsupdate
+	ldap server require strong auth = no
 EOF
 
-# Create log directory
-mkdir -p /var/log/samba
+# Move smb.conf to PVC, symlink back
+cp /etc/samba/smb.conf /var/lib/samba/smb.conf
+ln -sf /var/lib/samba/smb.conf /etc/samba/smb.conf
+echo "[HELIOS] smb.conf moved to PVC and symlinked"
 
-# ── Backup configs to PVC (survive container restarts) ──
-echo "[HELIOS] Backing up smb.conf and krb5.conf to PVC..."
-cp /etc/samba/smb.conf /var/lib/samba/smb.conf.bak
-cp /etc/krb5.conf /var/lib/samba/krb5.conf.bak
+# Configure Kerberos (already in private/ which is in PVC)
+write_progress "configuring" "Kerberos 설정" 60
+ln -sf /var/lib/samba/private/krb5.conf /etc/krb5.conf
+echo "[HELIOS] krb5.conf linked from PVC private/"
 
 # Note: function levels 2012/2012_R2 can be raised via Settings UI after DC starts
 # (samba provision only supports up to 2008_R2)
