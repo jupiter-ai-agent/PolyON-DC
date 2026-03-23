@@ -36,19 +36,42 @@ if [ -f "/shared/.helios-resetting" ]; then
     # Fall through to setup.json wait loop below
 fi
 
-# ── Already provisioned → start immediately ──
+# ── Already provisioned → restore configs & start ──
 if [ -f "$PROVISIONED" ]; then
     echo "============================================="
     echo "  HELIOS - Samba AD Domain Controller"
     echo "  Domain already provisioned. Starting..."
     echo "============================================="
 
-    # Ensure shared marker exists for API
-    touch /shared/.helios-provisioned 2>/dev/null || true
-    write_progress "complete" "완료" 100
+    # Restore smb.conf from PVC backup (survives container restarts)
+    if [ -f "/var/lib/samba/smb.conf.bak" ] && [ ! -f "/etc/samba/smb.conf" ]; then
+        echo "[HELIOS] Restoring smb.conf from PVC backup..."
+        mkdir -p /etc/samba
+        cp /var/lib/samba/smb.conf.bak /etc/samba/smb.conf
+    fi
 
-    echo "[HELIOS] Starting Samba AD DC..."
-    exec samba --foreground --no-process-group
+    # Restore krb5.conf from PVC backup
+    if [ -f "/var/lib/samba/krb5.conf.bak" ] && [ ! -f "/etc/krb5.conf" ]; then
+        echo "[HELIOS] Restoring krb5.conf from PVC backup..."
+        cp /var/lib/samba/krb5.conf.bak /etc/krb5.conf
+    fi
+
+    # Validate smb.conf exists
+    if [ ! -f "/etc/samba/smb.conf" ]; then
+        echo "[HELIOS] ERROR: smb.conf missing and no backup found. Clearing provisioned flag for re-provision."
+        rm -f "$PROVISIONED"
+        # Fall through to provisioning below
+    else
+        # Create log directory
+        mkdir -p /var/log/samba
+
+        # Ensure shared marker exists for API
+        touch /shared/.helios-provisioned 2>/dev/null || true
+        write_progress "complete" "완료" 100
+
+        echo "[HELIOS] Starting Samba AD DC..."
+        exec samba --foreground --no-process-group
+    fi
 fi
 
 # ── Not provisioned: wait for setup.json or use env defaults ──
@@ -152,6 +175,11 @@ EOF
 
 # Create log directory
 mkdir -p /var/log/samba
+
+# ── Backup configs to PVC (survive container restarts) ──
+echo "[HELIOS] Backing up smb.conf and krb5.conf to PVC..."
+cp /etc/samba/smb.conf /var/lib/samba/smb.conf.bak
+cp /etc/krb5.conf /var/lib/samba/krb5.conf.bak
 
 # Note: function levels 2012/2012_R2 can be raised via Settings UI after DC starts
 # (samba provision only supports up to 2008_R2)
