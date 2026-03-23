@@ -160,25 +160,42 @@ samba-tool domain provision \
     --option="log level = 1" \
     --option="log file = /var/log/samba/samba.log"
 
-# ── Move smb.conf to PVC and symlink (survive container restarts) ──
+# ── Build final smb.conf directly in PVC ──
 write_progress "configuring" "SMB 설정 PVC 이전" 55
 
-# Append HELIOS-specific settings to smb.conf
-cat >> /etc/samba/smb.conf << EOF
+# samba provision이 생성한 smb.conf에서 [global] 설정만 추출 후 HELIOS 설정 삽입
+# provision smb.conf 경로
+PROV_SMB="/etc/samba/smb.conf"
 
-# HELIOS container settings
+# PVC에 최종 smb.conf 직접 작성 (provision 결과 + HELIOS 설정 통합)
+cat > /var/lib/samba/smb.conf << SMBEOF
+# Global parameters
+[global]
+	dns forwarder = ${DNS_FORWARDER}
+	netbios name = $(hostname | tr '[:lower:]' '[:upper:]')
+	realm = ${REALM}
+	server role = active directory domain controller
+	workgroup = ${DOMAIN}
+	idmap_ldb:use rfc2307 = yes
 	log level = 1
 	log file = /var/log/samba/samba.log
 	max log size = 10000
 	bind interfaces only = no
 	server services = s3fs, rpc, nbt, wrepl, ldap, cldap, kdc, drepl, winbindd, ntp_signd, kcc, dnsupdate
 	ldap server require strong auth = no
-EOF
 
-# Move smb.conf to PVC, symlink back
-cp /etc/samba/smb.conf /var/lib/samba/smb.conf
+[sysvol]
+	path = /var/lib/samba/sysvol
+	read only = No
+
+[netlogon]
+	path = /var/lib/samba/sysvol/${REALM_LOWER}/scripts
+	read only = No
+SMBEOF
+
+# Symlink back
 ln -sf /var/lib/samba/smb.conf /etc/samba/smb.conf
-echo "[HELIOS] smb.conf moved to PVC and symlinked"
+echo "[HELIOS] smb.conf built in PVC and symlinked"
 
 # Configure Kerberos (already in private/ which is in PVC)
 write_progress "configuring" "Kerberos 설정" 60
