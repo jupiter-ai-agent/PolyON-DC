@@ -178,7 +178,7 @@ cat > /var/lib/samba/smb.conf << SMBEOF
 	workgroup = ${DOMAIN}
 	idmap_ldb:use rfc2307 = yes
 	log level = 1
-	log file = /var/log/samba/samba.log
+	log file = /var/lib/samba/samba.log
 	max log size = 10000
 	bind interfaces only = no
 	server services = s3fs, rpc, nbt, wrepl, ldap, cldap, kdc, drepl, winbindd, ntp_signd, kcc, dnsupdate
